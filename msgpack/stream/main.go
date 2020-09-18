@@ -12,46 +12,6 @@ import (
 	"time"
 )
 
-type (
-	channelBuffer struct {
-		buf []byte
-		c   chan []byte
-	}
-)
-
-func newChannelBuffer(channelCap int, bufferCap int) *channelBuffer {
-	return &channelBuffer{c: make(chan []byte, channelCap), buf: make([]byte, 0, bufferCap)}
-}
-
-func (b *channelBuffer) Write(p []byte) (n int, err error) {
-	b.c <- p
-	return len(p), nil
-}
-
-func (b *channelBuffer) Read(p []byte) (n int, err error) {
-	if len(b.buf) < len(p) {
-		for bs := range b.c {
-			b.buf = append(b.buf, bs...)
-			if len(b.buf) >= len(p) {
-				break
-			}
-		}
-	}
-	r := bytes.NewReader(b.buf)
-	readLen, err := r.Read(p)
-	if err != nil {
-		return readLen, err
-	}
-	b.buf = b.buf[readLen:]
-
-	return readLen, nil
-}
-
-func (b channelBuffer) Close() error {
-	close(b.c)
-	return nil
-}
-
 func main() {
 	const (
 		unit = 256
@@ -85,25 +45,25 @@ func main() {
 	}
 
 	wg := sync.WaitGroup{}
-	buf := newChannelBuffer(100, 1024)
+	rd, wr := io.Pipe()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for _, chunk := range chunks {
-			size, _ := buf.Write(chunk)
+			size, _ := wr.Write(chunk)
 			log.Printf("wrote %d bytes", size)
 			time.Sleep(100 * time.Millisecond)
 		}
-		buf.Close()
+		_ = wr.Close()
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		dec := msgpack.NewDecoder(buf)
+		dec := msgpack.NewDecoder(rd)
 
-		for i := 0; i < num; i++ {
+		for i := 0; i < num+1; i++ {
 			bs := make([]byte, unit)
 			err := dec.Decode(&bs)
 			if err != nil {
