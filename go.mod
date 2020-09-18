@@ -1,5 +1,5 @@
 module github.com/bananaumai/suburi-go
 
-go 1.14
+go 1.15
 
-require github.com/vmihailenco/msgpack/v5 v5.0.0-beta.1 // indirect
+require github.com/vmihailenco/msgpack/v4 v4.3.12
