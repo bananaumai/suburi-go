@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"github.com/vmihailenco/msgpack/v4"
 	"io"
 	"log"
 	"math/rand"
+	"net/http"
+	"net/url"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -101,4 +105,68 @@ func printBytes(bs []byte) {
 		}
 	}
 	fmt.Println("")
+}
+
+type Packet struct {
+	StreamName  string
+	PacketIndex uint32
+	Data        []byte
+}
+
+var _ msgpack.CustomDecoder = &Packet{}
+
+func (p *Packet) DecodeMsgpack(dec *msgpack.Decoder) error {
+	return dec.DecodeMulti(&p.StreamName, &p.PacketIndex, &p.Data)
+}
+
+func RetrieveDataPacket(
+	ctx context.Context,
+	homeID uint64,
+	smartModuleID string,
+	streamName string,
+	start int,
+	stop int,
+	apiKey string,
+) ([]Packet, error) {
+	reqURL := url.URL{
+		Scheme: "https",
+		Host: 	"api.tinkermode.com",
+	}
+	reqURL.Path = fmt.Sprintf("/homes/%d/smartModules/%s/streams/%s/data", homeID, smartModuleID, streamName)
+	params := url.Values{}
+	params.Add("start", strconv.Itoa(start))
+	params.Add("stop", strconv.Itoa(stop))
+	reqURL.RawQuery = params.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("ModeCloud %s", apiKey))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get data from API: %w", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	// Go's http client automatically follow the redirect and handle chunked response
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected response status: %d %s", resp.StatusCode, resp.Status)
+	}
+
+	msgpackDec := msgpack.NewDecoder(resp.Body)
+	var ps []Packet
+	for {
+		var p Packet
+		if err := msgpackDec.Decode(&p); err != nil {
+			if !errors.Is(err, io.EOF) {
+				return nil, fmt.Errorf("failed to decode: %w", err)
+			}
+			return ps, nil
+		}
+		ps = append(ps, p)
+	}
 }
