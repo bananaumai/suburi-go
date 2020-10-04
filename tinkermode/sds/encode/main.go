@@ -2,28 +2,41 @@ package main
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"os"
+
 	"github.com/vmihailenco/msgpack/v4"
 )
 
-type DataPacket struct {
-	StreamName  string
-	PacketIndex uint32
-	Data        []byte
-}
+type (
+	DataPacket struct {
+		StreamName  string
+		PacketIndex uint32
+		Data        []byte
+	}
 
-type MetadataPacket struct {
-	StreamName  string
-	PacketIndex uint32
-	Content     map[string]interface{}
-}
+	MetadataPacket struct {
+		StreamName  string
+		PacketIndex uint32
+		Content     map[string]interface{}
+	}
+)
 
-var _ msgpack.Marshaler = MetadataPacket{}
+func (d DataPacket) MarshalMsgpack() ([]byte, error) {
+	var w bytes.Buffer
+	enc := msgpack.NewEncoder(&w)
 
-func init() {
-	msgpack.RegisterExt(int8(1), MetadataPacket{})
+	if err := enc.EncodeString(d.StreamName); err != nil {
+		return nil, err
+	}
+	if err := enc.EncodeUint32(d.PacketIndex); err != nil {
+		return nil, err
+	}
+	if err := enc.EncodeBytes(d.Data); err != nil {
+		return nil, err
+	}
+
+	return w.Bytes(), nil
 }
 
 func (m MetadataPacket) MarshalMsgpack() ([]byte, error) {
@@ -47,52 +60,66 @@ func (m MetadataPacket) MarshalMsgpack() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-
-func (d DataPacket) MarshalMsgpack() ([]byte, error) {
-	var w bytes.Buffer
-	enc := msgpack.NewEncoder(&w)
-
-	if err := enc.EncodeString(d.StreamName); err != nil {
-		return nil, err
-	}
-	if err := enc.EncodeUint32(d.PacketIndex); err != nil {
-		return nil, err
-	}
-	if err := enc.EncodeBytes(d.Data); err != nil {
-		return nil, err
-	}
-
-	return w.Bytes(), nil
-}
-
 var (
-	_ msgpack.Marshaler     = DataPacket{}
+	_ msgpack.Marshaler = DataPacket{}
+	_ msgpack.Marshaler = MetadataPacket{}
 )
 
 func init() {
 	msgpack.RegisterExt(int8(0), DataPacket{})
+	msgpack.RegisterExt(int8(1), MetadataPacket{})
 }
 
 func main() {
-	data := [][]byte{[]byte("a")}
-	dataPayload, lastPacketIndex := encodeDataPackets("st", 1, data)
+	args := os.Args
+
+	if len(args) < 2 {
+		panic("need file")
+	}
+
+	filePath := args[1]
+
+	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0777)
+	if err != nil {
+		panic(err)
+	}
+
+	//enc := msgpack.NewEncoder(f)
+	//
+	//dp := DataPacket{
+	//	StreamName:  "s",
+	//	PacketIndex: 1,
+	//	Data:        []byte("d"),
+	//}
+	//
+	//if err := enc.Encode(dp); err != nil {
+	//	panic(err)
+	//}
+
+	data, _ := encodeDataPackets("s", 0, [][]byte{[]byte("d1"), []byte("d2")})
+	if _, err := f.Write(data); err != nil {
+		panic(err)
+	}
+
+	//data := [][]byte{[]byte("a")}
+	//dataPayload, lastPacketIndex := encodeDataPackets("st", 1, data)
 	//metadataPayload := encodeMetadata("s", 0, map[string]interface{}{"foo": "bar"})
 	//payload := append(dataPayload, metadataPayload...)
-	payload := dataPayload
-
-	fmt.Printf("lastPacketIndex: %d\n", lastPacketIndex)
-	fmt.Printf("encoded: %s\n", hex.EncodeToString(payload))
-
-	dp := DataPacket{
-		StreamName:  "st",
-		PacketIndex: 1,
-		Data:        []byte("a"),
-	}
-	r1 := encDP1(dp)
-	fmt.Printf("encDP1: %s\n", hex.EncodeToString(r1))
-	r2 := encDP2(dp)
-	fmt.Printf("encDP2: %s\n", hex.EncodeToString(r2))
-	fmt.Printf("encDP1() == encDP2() -> %t", bytes.Equal(r1, r2))
+	//payload := dataPayload
+	//
+	//fmt.Printf("lastPacketIndex: %d\n", lastPacketIndex)
+	//fmt.Printf("encoded: %s\n", hex.EncodeToString(payload))
+	//
+	//dp := DataPacket{
+	//	StreamName:  "st",
+	//	PacketIndex: 1,
+	//	Data:        []byte("a"),
+	//}
+	//r1 := encDP1(dp)
+	//fmt.Printf("encDP1: %s\n", hex.EncodeToString(r1))
+	//r2 := encDP2(dp)
+	//fmt.Printf("encDP2: %s\n", hex.EncodeToString(r2))
+	//fmt.Printf("encDP1() == encDP2() -> %t", bytes.Equal(r1, r2))
 }
 
 func encDP1(d DataPacket) []byte {
