@@ -9,19 +9,31 @@ import (
 	"io/ioutil"
 	"math/big"
 	"math/rand"
+	"os"
 	"time"
 )
 
+// preparation
+//
+// $ openssl genrsa -out ca.key 2048
+// $ openssl req -x509 -new -nodes -key ca.key -sha256 -days 1024 -out ca.pem -config ca.conf
+// $ openssl genrsa -out cert.key 2048
+// $ openssl req -new -key cert.key -out cert.csr
+//
+// run
+//
+// $ go run main.go -caCert=ca.pem -caPrivateKey=ca.key -csr=cert.csr
+//
 func main() {
 	var (
-		caCertPath string
+		caCertPath       string
 		caPrivateKeyPath string
-		csrPath string
+		csrPath          string
 	)
 
 	flag.StringVar(&caCertPath, "caCert", "", "CA Certificate")
 	flag.StringVar(&caPrivateKeyPath, "caPrivateKey", "", "CA Private Key")
-	flag.StringVar(&csrPath, "car", "", "Certificate Signing Request")
+	flag.StringVar(&csrPath, "csr", "", "Certificate Signing Request")
 	flag.Parse()
 
 	caCertData, err := loadASN1DataFromPEMFile(caCertPath)
@@ -33,9 +45,16 @@ func main() {
 		panic(err)
 	}
 
-	caPrivateKeyData, err := loadASN1DataFromPEMFile(caCertPath)
+	caPrivateKeyData, err := loadASN1DataFromPEMFile(caPrivateKeyPath)
 	if err != nil {
 		panic(err)
+	}
+	// reference to https://gist.github.com/jshap70/259a87a7146393aab5819873a193b88c
+	var caPrivateKey interface{}
+	if caPrivateKey, err = x509.ParsePKCS1PrivateKey(caPrivateKeyData); err != nil {
+		if caPrivateKey, err = x509.ParsePKCS8PrivateKey(caPrivateKeyData); err != nil {
+			panic(err)
+		}
 	}
 
 	csrData, err := loadASN1DataFromPEMFile(csrPath)
@@ -54,15 +73,34 @@ func main() {
 
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 	cert := x509.Certificate{
-		SerialNumber:                big.NewInt(r.Int63()),
-		Subject:                     csr.Subject,
-		NotBefore:                   time.Now(),
-		NotAfter:                    time.Now().Add(500*24*time.Hour),
-		Extensions:                  csr.Extensions,
-		ExtraExtensions:             csr.ExtraExtensions,
+		SerialNumber:       big.NewInt(r.Int63()),
+		Subject:            csr.Subject,
+		NotBefore:          time.Now(),
+		NotAfter:           time.Now().Add(500 * 24 * time.Hour),
+		Extensions:         csr.Extensions,
+		ExtraExtensions:    csr.ExtraExtensions,
+		Version:            csr.Version,
+		PublicKeyAlgorithm: csr.PublicKeyAlgorithm,
+		PublicKey:          csr.PublicKey,
+		DNSNames:           csr.DNSNames,
+		EmailAddresses:     csr.EmailAddresses,
+		IPAddresses:        csr.IPAddresses,
+		URIs:               csr.URIs,
 	}
 
-	if err := x509.CreateCertificate(cRand.Reader, )
+	certData, err := x509.CreateCertificate(cRand.Reader, &cert, ca, cert.PublicKey, caPrivateKey)
+	if err != nil {
+		panic(err)
+	}
+
+	certBlock := pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certData,
+	}
+
+	if err := pem.Encode(os.Stdout, &certBlock); err != nil {
+		panic(err)
+	}
 }
 
 func loadASN1DataFromPEMFile(pemFilePath string) ([]byte, error) {
