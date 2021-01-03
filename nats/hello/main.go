@@ -25,11 +25,6 @@ var (
 )
 
 func main() {
-	nc, err := nats.Connect(nats.DefaultURL)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer nc.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	eg, ctx := errgroup.WithContext(ctx)
@@ -37,7 +32,12 @@ func main() {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	eg.Go(func() error {
-		defer func() { wg.Done() }()
+		defer wg.Done()
+		nc, err := nats.Connect(nats.DefaultURL)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer nc.Close()
 		if err := publishLoop(ctx, nc); err != nil && !errors.Is(err, context.Canceled) {
 			return err
 		}
@@ -46,7 +46,12 @@ func main() {
 
 	wg.Add(1)
 	eg.Go(func() error {
-		defer func() { wg.Done() }()
+		defer wg.Done()
+		nc, err := nats.Connect(nats.DefaultURL)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer nc.Close()
 		subs := make([]*nats.Subscription, len(targets))
 		for i, t := range targets {
 			subject := fmt.Sprintf("/hello/%s", t)
@@ -113,6 +118,6 @@ func publishLoop(ctx context.Context, nc *nats.Conn) error {
 		if err := nc.Publish(subject, msg); err != nil {
 			return fmt.Errorf("failed to publish: %w", err)
 		}
-		log.Printf("published to %s", subject)
+		log.Printf("published msg to %s", subject)
 	}
 }
