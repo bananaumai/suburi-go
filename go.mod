@@ -3,6 +3,7 @@ module github.com/bananaumai/suburi-go
 go 1.16
 
 require (
+	github.com/influxdata/influxdb-client-go/v2 v2.4.0
 	github.com/nats-io/nats-server/v2 v2.2.6 // indirect
 	github.com/nats-io/nats.go v1.11.0
 	github.com/vmihailenco/msgpack/v4 v4.3.12
